@@ -215,19 +215,12 @@
     transition:transform .1s;
   }
   .block-btn:active{transform:scale(0.95);}
-  .mic-btn{border:2px solid #e5e2d8;border-radius:24px;padding:8px 12px;white-space:nowrap;}
   .mic-progress-group{display:flex;align-items:center;gap:12px;width:100%;justify-content:center;margin-top:6px;flex-wrap:wrap;}
   .mini-badge{font-size:1.1rem;padding:6px 14px;}
   .wave-progress{display:flex;align-items:center;gap:6px;flex:none;}
   .wave-progress-bg{width:60px;height:8px;background:#eee;border-radius:6px;overflow:hidden;}
   .wave-progress-fill{height:100%;width:0%;background:var(--good);transition:width .3s;}
   #waveProgressText{font-size:.75rem;font-weight:bold;color:#666;white-space:nowrap;}
-  .mic-btn.listening{border-color:var(--bad);background:#fff0ef;animation:pulse 1s infinite;}
-  @keyframes pulse{
-    0%{box-shadow:0 0 0 0 rgba(224,71,58,.4);}
-    70%{box-shadow:0 0 0 10px rgba(224,71,58,0);}
-    100%{box-shadow:0 0 0 0 rgba(224,71,58,0);}
-  }
 
   .guess-prompt{font-weight:bold;font-size:1.1rem;margin-top:10px;color:var(--ink);}
   .choices-wrap{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px;}
@@ -419,9 +412,6 @@
       </div>
       <div class="mic-progress-group" id="micProgressGroup">
         <div class="badge mini-badge" id="targetNumberWrap"><span id="targetNumber">386</span></div>
-        <button class="block-btn mic-btn" id="micBtn" onclick="toggleListening()" title="Sabihin: daanan, sampuan, o isahan">
-          🎤 <span id="micLabel">Magsalita</span>
-        </button>
         <div class="wave-progress" title="Progress sa kasalukuyang wave">
           <div class="wave-progress-bg"><div class="wave-progress-fill" id="waveProgressFill"></div></div>
           <span id="waveProgressText">0/10</span>
@@ -644,8 +634,7 @@
     document.getElementById('guessPrompt').style.display = (mode==='guess') ? 'block' : 'none';
     document.getElementById('choicesWrap').style.display = (mode==='guess') ? 'grid' : 'none';
 
-    // voice recognition language: Filipino terms for build, English numbers for guess
-    if(recognition) recognition.lang = (mode==='build') ? 'fil-PH' : 'en-US';
+    // (Voice feature ay tinanggal na)
 
     if(mode === 'build') newNumber(); else newGuessRound();
   }
@@ -871,105 +860,6 @@
     document.getElementById('score').textContent = 'Tama: ' + waveCorrect + ' / 10';
     document.getElementById('waveProgressText').textContent = waveCorrect + '/10';
     document.getElementById('waveProgressFill').style.width = (waveCorrect*10) + '%';
-  }
-
-  // ============================================================
-  // VOICE INPUT (sabihin ang daanan / sampuan / isahan)
-  // continuous + interim para mabilis na reaction. Para hindi maulit-ulit
-  // ang trigger sa parehong segment, minamarkahan natin ang resultIndex
-  // bilang "nagamit na" — simple, walang timer/lock na pwedeng harangan.
-  // ============================================================
-  let recognition = null;
-  let isListening = false;
-  let voiceConsumed = new Set();
-
-  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if(SpeechRec){
-    recognition = new SpeechRec();
-    recognition.lang = 'fil-PH';
-    recognition.continuous = true;
-    recognition.interimResults = true;
-
-    recognition.onresult = (e) => {
-      const i = e.resultIndex;
-      if(voiceConsumed.has(i)) return; // nagamit na ang segment na ito, huwag na ulitin
-      const said = e.results[i][0].transcript.toLowerCase().trim();
-
-      if(gameMode === 'guess'){
-        const num = parseSpokenNumber(said);
-        if(num !== null){
-          voiceConsumed.add(i);
-          checkGuessAnswer(num, null);
-        }
-        return;
-      }
-
-      let matched = true;
-      if(said.includes('daan') || said.includes('sandaan') || said.includes('raan') || said.includes('hundred') || said.includes('100')){
-        addBlock('hundreds');
-      } else if(said.includes('sampu') || said.includes('sampo') || said.includes('ten') || said.includes('10')){
-        addBlock('tens');
-      } else if(said.includes('isa') || said.includes('uno') || said.includes('one')){
-        addBlock('ones');
-      } else if(said.includes('tsek') || said.includes('check')){
-        checkAnswer();
-      } else if(said.includes('reset') || said.includes('linis')){
-        resetBoard();
-      } else {
-        matched = false;
-      }
-      if(matched) voiceConsumed.add(i);
-    };
-
-    recognition.onend = () => {
-      voiceConsumed.clear();
-      if(isListening) recognition.start();
-    };
-  }
-
-  function toggleListening(){
-    if(!recognition){
-      alert('Paumanhin, hindi suportado ng browser mo ang voice input.');
-      return;
-    }
-    isListening ? stopListening() : startListening();
-  }
-
-  function startListening(){
-    isListening = true;
-    try{ recognition.start(); }catch(err){}
-    document.getElementById('micBtn').classList.add('listening');
-    document.getElementById('micLabel').textContent = 'Nakikinig...';
-  }
-
-  function stopListening(){
-    isListening = false;
-    try{ recognition.stop(); }catch(e){}
-    document.getElementById('micBtn').classList.remove('listening');
-    document.getElementById('micLabel').textContent = 'Magsalita';
-  }
-
-
-  // Parses a spoken number (digits or English number words) into an integer, or null.
-  function parseSpokenNumber(text){
-    const digitMatch = text.match(/\d+/g);
-    if(digitMatch) return parseInt(digitMatch.join(''), 10);
-
-    const onesWords = {zero:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,
-      ten:10,eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19};
-    const tensWords = {twenty:20,thirty:30,forty:40,fifty:50,sixty:60,seventy:70,eighty:80,ninety:90};
-
-    const words = text.toLowerCase().replace(/-/g,' ').replace(/\band\b/g,' ').split(/\s+/).filter(Boolean);
-    if(words.length === 0) return null;
-
-    let total = 0, current = 0, found = false;
-    for(const w of words){
-      if(w === 'hundred'){ current = (current || 1) * 100; total += current; current = 0; found = true; }
-      else if(onesWords.hasOwnProperty(w)){ current += onesWords[w]; found = true; }
-      else if(tensWords.hasOwnProperty(w)){ current += tensWords[w]; found = true; }
-    }
-    total += current;
-    return found ? total : null;
   }
 
   // ============================================================
