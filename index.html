@@ -875,29 +875,36 @@
 
   // ============================================================
   // VOICE INPUT (sabihin ang daanan / sampuan / isahan)
-  // Pinasimple — kapareho ng fluency checker: tuloy-tuloy na bukas ang
-  // mic (continuous), at bawat NATAPOS na resulta (final) ay direktang
-  // iproseso. Walang lock, walang counter, walang artificial restart.
+  // continuous + interim para mabilis na reaction. Para hindi maulit-ulit
+  // ang trigger sa parehong segment, minamarkahan natin ang resultIndex
+  // bilang "nagamit na" — simple, walang timer/lock na pwedeng harangan.
   // ============================================================
   let recognition = null;
   let isListening = false;
+  let voiceConsumed = new Set();
 
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
   if(SpeechRec){
     recognition = new SpeechRec();
     recognition.lang = 'fil-PH';
     recognition.continuous = true;
-    recognition.interimResults = false;
+    recognition.interimResults = true;
 
     recognition.onresult = (e) => {
-      const said = e.results[e.results.length - 1][0].transcript.toLowerCase().trim();
+      const i = e.resultIndex;
+      if(voiceConsumed.has(i)) return; // nagamit na ang segment na ito, huwag na ulitin
+      const said = e.results[i][0].transcript.toLowerCase().trim();
 
       if(gameMode === 'guess'){
         const num = parseSpokenNumber(said);
-        if(num !== null) checkGuessAnswer(num, null);
+        if(num !== null){
+          voiceConsumed.add(i);
+          checkGuessAnswer(num, null);
+        }
         return;
       }
 
+      let matched = true;
       if(said.includes('daan') || said.includes('sandaan') || said.includes('raan') || said.includes('hundred') || said.includes('100')){
         addBlock('hundreds');
       } else if(said.includes('sampu') || said.includes('sampo') || said.includes('ten') || said.includes('10')){
@@ -908,10 +915,16 @@
         checkAnswer();
       } else if(said.includes('reset') || said.includes('linis')){
         resetBoard();
+      } else {
+        matched = false;
       }
+      if(matched) voiceConsumed.add(i);
     };
 
-    recognition.onend = () => { if(isListening) recognition.start(); };
+    recognition.onend = () => {
+      voiceConsumed.clear();
+      if(isListening) recognition.start();
+    };
   }
 
   function toggleListening(){
