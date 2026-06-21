@@ -875,64 +875,70 @@
 
   // ============================================================
   // VOICE INPUT (sabihin ang daanan / sampuan / isahan)
+  // Single-shot mode (continuous=false) — ito ang mas matatag/well-tested
+  // na paraan ng browser. Awtomatikong mag-restart pagkatapos ng bawat
+  // natural na pagtigil ng pagsasalita, hindi tayo ang pilit nagpapatigil.
   // ============================================================
   let recognition = null;
   let isListening = false;
-  let voiceLocked = false; // true habang naka-cooldown, para isang trigger lang kada salita
-  let voiceLockTimer = null;
-  let voiceWatchdog = null;     // tumitingin kung "namatay" nang tahimik ang session
-  let lastVoiceActivity = 0;
+  let voiceWordCounts = {hundreds:0, tens:0, ones:0}; // bilang ng salita sa kasalukuyang utterance
 
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
   if(SpeechRec){
     recognition = new SpeechRec();
     recognition.lang = 'fil-PH';
-    recognition.continuous = true;
-    recognition.interimResults = true;     // mabilis na reaction, hindi na hihintayin ang katahimikan
+    recognition.continuous = false;        // single utterance kada session — mas reliable
+    recognition.interimResults = true;     // mabilis na reaction habang nagsasalita
     recognition.maxAlternatives = 1;
 
     recognition.onresult = (e) => {
-      lastVoiceActivity = Date.now();
-      if(voiceLocked) return; // huwag pansin habang naka-cooldown mula sa huling tugma
-      const i = e.resultIndex;
-      const said = e.results[i][0].transcript.toLowerCase().trim();
-      const matched = handleVoiceCommand(said);
-      if(matched){
-        voiceLocked = true; // i-lock saglit para hindi maulit-ulit ang trigger
-        clearTimeout(voiceLockTimer);
-        voiceLockTimer = setTimeout(() => { voiceLocked = false; }, 1200);
-        // HINDI na natin tinitigil/ni-restart ang recognition dito.
-        // Tuloy-tuloy ito tumakbo (tulad ng fluency checker) — mas stable
-        // kaysa madalas i-restart, na sanhi pala ng dating pagka-tigil.
+      const said = e.results[e.results.length - 1][0].transcript.toLowerCase().trim();
+
+      if(gameMode === 'guess'){
+        const num = parseSpokenNumber(said);
+        if(num !== null) checkGuessAnswer(num, null);
+        return;
+      }
+
+      // bilangin ang bawat salita sa transcript ng kasalukuyang utterance lang;
+      // idagdag ang block bawat bagong bilang na nadetect (sumusuporta sa
+      // paulit-ulit na pagsasabi sa loob ng isang pagsasalita, hal. "isa isa isa")
+      const words = said.split(/\s+/).filter(Boolean);
+      const counts = {hundreds:0, tens:0, ones:0};
+      words.forEach(w => {
+        if(/daan|sandaan|raan|hundred|100/.test(w)) counts.hundreds++;
+        else if(/sampu|sampo|ten|^10$/.test(w)) counts.tens++;
+        else if(/isa|uno|one|^1$/.test(w)) counts.ones++;
+      });
+      ['hundreds','tens','ones'].forEach(cat => {
+        if(counts[cat] > voiceWordCounts[cat]){
+          const diff = counts[cat] - voiceWordCounts[cat];
+          for(let k=0; k<diff; k++) addBlock(cat);
+          voiceWordCounts[cat] = counts[cat];
+        }
+      });
+
+      if(said.includes('tsek') || said.includes('check') || said.includes('sek')){
+        checkAnswer();
+      } else if(said.includes('reset') || said.includes('linis') || said.includes('bura')){
+        resetBoard();
       }
     };
-    recognition.onerror = () => {
-      // huwag awtomatikong i-off ang mic; subukang i-restart kung naka-on pa rin
-      if(isListening) safeRestart();
-    };
+
     recognition.onend = () => {
-      voiceLocked = false;
-      if(isListening) safeRestart();
+      // natural na pagtigil ng isang utterance — i-reset ang counter at
+      // agad na magsimula ulit ng panibagong pakikinig (kung naka-on pa rin)
+      voiceWordCounts = {hundreds:0, tens:0, ones:0};
+      if(isListening){
+        try{ recognition.start(); }catch(err){ /* ok lang, baka nagsisimula na */ }
+      }
+    };
+
+    recognition.onerror = (e) => {
+      // halimbawa 'no-speech': hayaan lang mag-restart sa onend, na palaging tumatawag
+      // kahit nagka-error muna (sa karamihan ng browser, sumusunod ang onend after onerror)
     };
   }
-
-  function safeRestart(){
-    setTimeout(() => {
-      if(!isListening) return;
-      try{ recognition.start(); }catch(err){ /* maybe already running; ok lang */ }
-    }, 150);
-  }
-
-  // Watchdog: kung mahigit 6 segundong walang aktibidad habang naka-on ang mic
-  // (walang onresult/onend man na natawag — totoong "tahimik na pagkamatay"),
-  // pilitin nating i-restart ang session.
-  setInterval(() => {
-    if(isListening && Date.now() - lastVoiceActivity > 15000){
-      lastVoiceActivity = Date.now();
-      try{ recognition.stop(); }catch(e){}
-      safeRestart();
-    }
-  }, 5000);
 
   function toggleListening(){
     if(!recognition){
@@ -944,48 +950,19 @@
 
   function startListening(){
     isListening = true;
-    lastVoiceActivity = Date.now();
-    recognition.start();
+    voiceWordCounts = {hundreds:0, tens:0, ones:0};
+    try{ recognition.start(); }catch(err){}
     document.getElementById('micBtn').classList.add('listening');
     document.getElementById('micLabel').textContent = 'Nakikinig...';
   }
 
   function stopListening(){
     isListening = false;
-    voiceLocked = false;
-    clearTimeout(voiceLockTimer);
     try{ recognition.stop(); }catch(e){}
     document.getElementById('micBtn').classList.remove('listening');
     document.getElementById('micLabel').textContent = 'Magsalita';
   }
 
-  function handleVoiceCommand(said){
-    if(gameMode === 'guess'){
-      const num = parseSpokenNumber(said);
-      if(num !== null){
-        checkGuessAnswer(num, null);
-        return true;
-      }
-      return false;
-    }
-    if(said.includes('daan') || said.includes('sandaan') || said.includes('100') || said.includes('hundred') || said.includes('raan')){
-      addBlock('hundreds');
-      return true;
-    } else if(said.includes('sampu') || said.includes('10') || said.includes('ten') || said.includes('sampo')){
-      addBlock('tens');
-      return true;
-    } else if(said.includes('isa') || said.includes('uno') || /\b1\b/.test(said) || said.includes('one')){
-      addBlock('ones');
-      return true;
-    } else if(said.includes('tsek') || said.includes('check') || said.includes('sek')){
-      checkAnswer();
-      return true;
-    } else if(said.includes('reset') || said.includes('linis') || said.includes('bura')){
-      resetBoard();
-      return true;
-    }
-    return false;
-  }
 
   // Parses a spoken number (digits or English number words) into an integer, or null.
   function parseSpokenNumber(text){
