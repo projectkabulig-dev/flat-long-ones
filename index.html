@@ -875,21 +875,19 @@
 
   // ============================================================
   // VOICE INPUT (sabihin ang daanan / sampuan / isahan)
-  // Single-shot mode (continuous=false) — ito ang mas matatag/well-tested
-  // na paraan ng browser. Awtomatikong mag-restart pagkatapos ng bawat
-  // natural na pagtigil ng pagsasalita, hindi tayo ang pilit nagpapatigil.
+  // Pinasimple — kapareho ng fluency checker: tuloy-tuloy na bukas ang
+  // mic (continuous), at bawat NATAPOS na resulta (final) ay direktang
+  // iproseso. Walang lock, walang counter, walang artificial restart.
   // ============================================================
   let recognition = null;
   let isListening = false;
-  let voiceWordCounts = {hundreds:0, tens:0, ones:0}; // bilang ng salita sa kasalukuyang utterance
 
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
   if(SpeechRec){
     recognition = new SpeechRec();
     recognition.lang = 'fil-PH';
-    recognition.continuous = false;        // single utterance kada session — mas reliable
-    recognition.interimResults = true;     // mabilis na reaction habang nagsasalita
-    recognition.maxAlternatives = 1;
+    recognition.continuous = true;
+    recognition.interimResults = false;
 
     recognition.onresult = (e) => {
       const said = e.results[e.results.length - 1][0].transcript.toLowerCase().trim();
@@ -900,44 +898,20 @@
         return;
       }
 
-      // bilangin ang bawat salita sa transcript ng kasalukuyang utterance lang;
-      // idagdag ang block bawat bagong bilang na nadetect (sumusuporta sa
-      // paulit-ulit na pagsasabi sa loob ng isang pagsasalita, hal. "isa isa isa")
-      const words = said.split(/\s+/).filter(Boolean);
-      const counts = {hundreds:0, tens:0, ones:0};
-      words.forEach(w => {
-        if(/daan|sandaan|raan|hundred|100/.test(w)) counts.hundreds++;
-        else if(/sampu|sampo|ten|^10$/.test(w)) counts.tens++;
-        else if(/isa|uno|one|^1$/.test(w)) counts.ones++;
-      });
-      ['hundreds','tens','ones'].forEach(cat => {
-        if(counts[cat] > voiceWordCounts[cat]){
-          const diff = counts[cat] - voiceWordCounts[cat];
-          for(let k=0; k<diff; k++) addBlock(cat);
-          voiceWordCounts[cat] = counts[cat];
-        }
-      });
-
-      if(said.includes('tsek') || said.includes('check') || said.includes('sek')){
+      if(said.includes('daan') || said.includes('sandaan') || said.includes('raan') || said.includes('hundred') || said.includes('100')){
+        addBlock('hundreds');
+      } else if(said.includes('sampu') || said.includes('sampo') || said.includes('ten') || said.includes('10')){
+        addBlock('tens');
+      } else if(said.includes('isa') || said.includes('uno') || said.includes('one')){
+        addBlock('ones');
+      } else if(said.includes('tsek') || said.includes('check')){
         checkAnswer();
-      } else if(said.includes('reset') || said.includes('linis') || said.includes('bura')){
+      } else if(said.includes('reset') || said.includes('linis')){
         resetBoard();
       }
     };
 
-    recognition.onend = () => {
-      // natural na pagtigil ng isang utterance — i-reset ang counter at
-      // agad na magsimula ulit ng panibagong pakikinig (kung naka-on pa rin)
-      voiceWordCounts = {hundreds:0, tens:0, ones:0};
-      if(isListening){
-        try{ recognition.start(); }catch(err){ /* ok lang, baka nagsisimula na */ }
-      }
-    };
-
-    recognition.onerror = (e) => {
-      // halimbawa 'no-speech': hayaan lang mag-restart sa onend, na palaging tumatawag
-      // kahit nagka-error muna (sa karamihan ng browser, sumusunod ang onend after onerror)
-    };
+    recognition.onend = () => { if(isListening) recognition.start(); };
   }
 
   function toggleListening(){
@@ -950,7 +924,6 @@
 
   function startListening(){
     isListening = true;
-    voiceWordCounts = {hundreds:0, tens:0, ones:0};
     try{ recognition.start(); }catch(err){}
     document.getElementById('micBtn').classList.add('listening');
     document.getElementById('micLabel').textContent = 'Nakikinig...';
