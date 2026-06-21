@@ -901,10 +901,9 @@
         voiceLocked = true; // i-lock saglit para hindi maulit-ulit ang trigger
         clearTimeout(voiceLockTimer);
         voiceLockTimer = setTimeout(() => { voiceLocked = false; }, 1200);
-        // i-refresh ang session pagkatapos ng bawat tamang utterance para hindi
-        // "tahimik na mamatay" ang continuous session (kilalang quirk ng Chrome).
-        // Hindi ito mapapansin ng user — manatiling "Nakikinig..." ang label.
-        try{ recognition.stop(); }catch(err){}
+        // HINDI na natin tinitigil/ni-restart ang recognition dito.
+        // Tuloy-tuloy ito tumakbo (tulad ng fluency checker) — mas stable
+        // kaysa madalas i-restart, na sanhi pala ng dating pagka-tigil.
       }
     };
     recognition.onerror = () => {
@@ -928,12 +927,12 @@
   // (walang onresult/onend man na natawag — totoong "tahimik na pagkamatay"),
   // pilitin nating i-restart ang session.
   setInterval(() => {
-    if(isListening && Date.now() - lastVoiceActivity > 6000){
+    if(isListening && Date.now() - lastVoiceActivity > 15000){
       lastVoiceActivity = Date.now();
       try{ recognition.stop(); }catch(e){}
       safeRestart();
     }
-  }, 3000);
+  }, 5000);
 
   function toggleListening(){
     if(!recognition){
